@@ -3,7 +3,7 @@ from datetime import date
 import streamlit as st
 from langchain_core.messages import HumanMessage, AIMessage
 from agent import prenatal_agent
-from db import ensure_user, get_conn
+from db import ensure_user, get_conn, save_message, load_messages, clear_messages
 
 st.set_page_config(page_title="Prenatal Assistant", page_icon="🤰")
 st.title("Third-Trimester Prenatal Assistant")
@@ -24,13 +24,19 @@ with st.sidebar:
             conn.commit()
         st.success("Profile & due date saved!")
 
+    st.divider()
+    if st.button("Clear Chat History"):
+        clear_messages(user_id)
+        st.session_state.messages = []
+        st.session_state.thread_id = str(uuid.uuid4())
+        st.rerun()
+
 ensure_user(user_id, due_date.isoformat())
 
-if "thread_id" not in st.session_state:
+if "active_user" not in st.session_state or st.session_state.active_user != user_id:
+    st.session_state.active_user = user_id
     st.session_state.thread_id = str(uuid.uuid4())
-
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+    st.session_state.messages = load_messages(user_id)
 
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
@@ -38,8 +44,14 @@ for msg in st.session_state.messages:
 
 if prompt := st.chat_input("Ask about symptoms, kick counts, or your hospital bag..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
+    save_message(user_id, "user", prompt)
     with st.chat_message("user"):
         st.markdown(prompt)
+
+    history_msgs = [
+        HumanMessage(content=m["content"]) if m["role"] == "user" else AIMessage(content=m["content"])
+        for m in st.session_state.messages[-12:]
+    ]
 
     config = {
         "configurable": {
@@ -49,7 +61,7 @@ if prompt := st.chat_input("Ask about symptoms, kick counts, or your hospital ba
     }
     final_reply = ""
     for event in prenatal_agent.stream(
-        {"messages": [HumanMessage(content=prompt)]},
+        {"messages": history_msgs},
         config=config,
         stream_mode="values",
     ):
@@ -58,6 +70,8 @@ if prompt := st.chat_input("Ask about symptoms, kick counts, or your hospital ba
             if isinstance(last, AIMessage) and last.content and not last.tool_calls:
                 final_reply = last.content
 
-    st.session_state.messages.append({"role": "assistant", "content": final_reply})
-    with st.chat_message("assistant"):
-        st.markdown(final_reply)
+    if final_reply:
+        st.session_state.messages.append({"role": "assistant", "content": final_reply})
+        save_message(user_id, "assistant", final_reply)
+        with st.chat_message("assistant"):
+            st.markdown(final_reply)
