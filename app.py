@@ -1,3 +1,4 @@
+import uuid
 import streamlit as st
 from langchain_core.messages import HumanMessage, AIMessage
 from agent import prenatal_agent
@@ -5,6 +6,9 @@ from agent import prenatal_agent
 st.set_page_config(page_title="Prenatal Assistant", page_icon="🤰")
 st.title("Third-Trimester Prenatal Assistant")
 st.caption("Week 28–31 Support • Kick Counts, Nutrition & Checklists")
+
+if "thread_id" not in st.session_state:
+    st.session_state.thread_id = str(uuid.uuid4())
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -18,7 +22,7 @@ if prompt := st.chat_input("Ask about symptoms, kick counts, or your hospital ba
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    config = {"configurable": {"thread_id": "iphone_user_01"}}
+    config = {"configurable": {"thread_id": st.session_state.thread_id}}
     final_reply = ""
     for event in prenatal_agent.stream(
         {"messages": [HumanMessage(content=prompt)]},
